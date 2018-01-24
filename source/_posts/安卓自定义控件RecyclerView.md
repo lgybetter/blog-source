@@ -3,7 +3,8 @@ title: 安卓自定义控件RecyclerView
 date: 2016-7-31 7:56:41
 tags:
   - 安卓
-categories: 安卓
+categories:
+  - 客户端
 ---
 
 > RecyclerView是安卓5.0版本对列表视图控件ListView的升级，也是属于MD设计的一部分，其功能十分强大，但是使用起来相比ListView比较复杂。

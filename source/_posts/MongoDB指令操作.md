@@ -3,7 +3,8 @@ title: MongoDB指令操作
 date: 2016-7-31 15:14:52
 tags: 
   - MongoDB
-categories: MongoDB
+categories:
+  - 数据库
 ---
 
 ## 显示操作

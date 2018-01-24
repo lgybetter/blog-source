@@ -3,7 +3,8 @@ title: MongoDB原生命令CURD
 date: 2017-03-22 22:39:05
 tags: 
   - MongoDB
-categories: MongoDB
+categories:
+  - 数据库
 ---
 > 《MongoDB权威指南》学习摘录
 

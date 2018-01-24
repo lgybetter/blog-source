@@ -5,7 +5,7 @@ tags:
   - Node
   - OpenCV
 categories:
-  - Node
+  - 后端
 ---
 
 ### Opencv 安装使用
