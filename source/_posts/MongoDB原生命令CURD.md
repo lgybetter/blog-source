@@ -430,3 +430,4 @@ $slice用来返回某个匹配数组元素的一个子集
 >for(i = 0; i <100; i ++) {
   db.collection.insert({x : i});
 }
+```
