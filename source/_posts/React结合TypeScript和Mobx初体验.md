@@ -2,6 +2,10 @@
 title: React结合TypeScript和Mobx初体验
 date: 2018-05-05 21:16:42
 tags:
+  - React
+  - TypeScript
+categories:
+  - 前端
 ---
 
 ![banner](/images/20180505210245.png)
