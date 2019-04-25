@@ -8,6 +8,15 @@ categories:
 ---
 
 ## 盒模型
+
+盒子模型有两种，标准模型和IE盒模型
+
+![标准模型](/images/标准模型.png)
+![IE模型](/images/IE模型.png)
+
+标准模型：宽高部分只包含content部分
+IE模型： 宽高包含content + padding + border
+
 ## flex
 ## css单位
 ## css选择器
