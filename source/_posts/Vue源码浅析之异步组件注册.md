@@ -133,7 +133,7 @@ export function createComponent (
 }
 ```
 
-从源码我们可以看出, 异步组件不执行组件构造器的转换获取, 而是执行 resolveAsyncComponent 来获取返回的组件对象。由于改过程是异步请求组件, 所以我们看下 resolveAsyncComponent 的实现  
+从源码我们可以看出, 异步组件不执行组件构造器的转换获取, 而是执行 resolveAsyncComponent 来获取返回的组件构造器。由于该过程是异步请求组件, 所以我们看下 resolveAsyncComponent 的实现  
 
 ```js
 // 定义在render.js中的全局变量, 用于记录当前正在渲染的vm实例
@@ -236,10 +236,236 @@ Vue.prototype.$forceUpdate = function () {
 }
 ```
 
-$forceUpdate 执行渲染 watcher 的 update 方法，于是我们又会执行 createComponent 的方法, 执行 resolveAsyncComponent, 这时候 factory.resolved 已经定义过了，于是直接返回 factory.resolved 的组件构造器。 于是就执行 createComponent 的后续组件的渲染和 patch 逻辑了。组件渲染和 patch 这里先不展开。
+$forceUpdate 执行渲染 watcher 的 update 方法, 于是我们又会执行 createComponent 的方法, 执行 resolveAsyncComponent, 这时候 factory.resolved 已经定义过了, 于是直接返回 factory.resolved 的组件构造器。 于是就执行 createComponent 的后续组件的渲染和 patch 逻辑了。组件渲染和 patch 这里先不展开。
 
 于是整个异步组件的流程就结束了。
 
 ## 工厂函数中返回Promise
 
-啊!!! 凌晨2.42了，先睡觉，明天继续补充。
+先看下官网文档提供的示例:
+
+```js
+Vue.component(
+  'async-webpack-example',
+  // 这个 `import` 函数会返回一个 `Promise` 对象。
+  () => import('./my-async-component')
+)
+```
+由上面的示例, 可以看到当调用Vue.component的时候, definition为一个会返回 Promise 的函数, 与工厂函数执行 resolve 回调不同的地方在于:
+
+```js
+export function resolveAsyncComponent (
+  factory: Function,
+  baseCtor: Class<Component>
+): Class<Component> | void {
+
+    ...省略
+
+    // 执行工厂函数, 比如webpack获取异步组件资源
+    const res = factory(resolve, reject)
+    if (isObject(res)) {
+      // 为Promise对象,  import('./async-component')
+      if (isPromise(res)) {
+        // () => Promise
+        if (isUndef(factory.resolved)) {
+          res.then(resolve, reject)
+        }
+      } else if (isPromise(res.component)) {
+        res.component.then(resolve, reject)
+
+        if (isDef(res.error)) {
+          factory.errorComp = ensureCtor(res.error, baseCtor)
+        }
+
+        if (isDef(res.loading)) {
+          factory.loadingComp = ensureCtor(res.loading, baseCtor)
+          if (res.delay === 0) {
+            factory.loading = true
+          } else {
+            timerLoading = setTimeout(() => {
+              timerLoading = null
+              if (isUndef(factory.resolved) && isUndef(factory.error)) {
+                factory.loading = true
+                forceRender(false)
+              }
+            }, res.delay || 200)
+          }
+        }
+
+        if (isDef(res.timeout)) {
+          timerTimeout = setTimeout(() => {
+            timerTimeout = null
+            if (isUndef(factory.resolved)) {
+              reject(
+                process.env.NODE_ENV !== 'production'
+                  ? `timeout (${res.timeout}ms)`
+                  : null
+              )
+            }
+          }, res.timeout)
+        }
+      }
+    }
+
+    sync = false
+    // return in case resolved synchronously
+    return factory.loading
+      ? factory.loadingComp
+      : factory.resolved
+  }
+}
+```
+主要不同点在于执行完 factory 工厂函数, 这时候我们的工厂函数会返回一个 Promise, 所以 res.then(resolve, reject) 会执行,  接下来的过程也是等待异步组件请求完成, 然后执行 resolve 函数, 接着执行 forceRender 然后返回组件构造器。
+
+这里 Promise 写法的异步组件注册过程和执行回调函数没有太大的区别。
+
+## 工厂函数返回一个配置化组件对象
+
+同样, 看下官网示例:
+
+```js
+const AsyncComponent = () => ({
+  // 需要加载的组件 (应该是一个 `Promise` 对象)
+  component: import('./MyComponent.vue'),
+  // 异步组件加载时使用的组件
+  loading: LoadingComponent,
+  // 加载失败时使用的组件
+  error: ErrorComponent,
+  // 展示加载时组件的延时时间。默认值是 200 (毫秒)
+  delay: 200,
+  // 如果提供了超时时间且组件加载也超时了，
+  // 则使用加载失败时使用的组件。默认值是：`Infinity`
+  timeout: 3000
+})
+```
+
+从上面的示例可以看到, 工厂函数在执行成功后会返回一个配置对象, 这个对象的5个属性我们都可以从官方文档的注释了解到各自的作用。那我们看一下这种方式和前面提到的两种方式的区别在哪里.
+
+```js
+export function resolveAsyncComponent (
+  factory: Function,
+  baseCtor: Class<Component>
+): Class<Component> | void {
+  // 高级异步组件使用
+  if (isTrue(factory.error) && isDef(factory.errorComp)) {
+    return factory.errorComp
+  }
+
+  if (isDef(factory.resolved)) {
+    return factory.resolved
+  }
+
+  ...已了解过，省略
+
+  if (isTrue(factory.loading) && isDef(factory.loadingComp)) {
+    return factory.loadingComp
+  }
+
+  if (owner && !isDef(factory.owners)) {
+    const owners = factory.owners = [owner]
+    let sync = true
+    let timerLoading = null
+    let timerTimeout = null
+
+    ;(owner: any).$on('hook:destroyed', () => remove(owners, owner))
+
+    const forceRender = (renderCompleted: boolean) => {...省略}
+    // once让被once包装的任何函数的其中一个只执行一次
+    const resolve = once((res: Object | Class<Component>) => {
+      factory.resolved = ensureCtor(res, baseCtor)
+      if (!sync) {
+        forceRender(true)
+      } else {
+        owners.length = 0
+      }
+    })
+
+    const reject = once(reason => {
+      process.env.NODE_ENV !== 'production' && warn(
+        `Failed to resolve async component: ${String(factory)}` +
+        (reason ? `\nReason: ${reason}` : '')
+      )
+      if (isDef(factory.errorComp)) {
+        factory.error = true
+        forceRender(true)
+      }
+    })
+
+    // 执行工厂函数，比如webpack获取异步组件资源
+    const res = factory(resolve, reject)
+    if (isObject(res)) {
+      // 为Promise对象， import('./async-component')
+      if (isPromise(res)) {
+        ...省略
+      } else if (isPromise(res.component)) {
+        res.component.then(resolve, reject)
+
+        if (isDef(res.error)) {
+          factory.errorComp = ensureCtor(res.error, baseCtor)
+        }
+
+        if (isDef(res.loading)) {
+          factory.loadingComp = ensureCtor(res.loading, baseCtor)
+          if (res.delay === 0) {
+            factory.loading = true
+          } else {
+            timerLoading = setTimeout(() => {
+              timerLoading = null
+              if (isUndef(factory.resolved) && isUndef(factory.error)) {
+                factory.loading = true
+                forceRender(false)
+              }
+            }, res.delay || 200)
+          }
+        }
+
+        if (isDef(res.timeout)) {
+          timerTimeout = setTimeout(() => {
+            timerTimeout = null
+            if (isUndef(factory.resolved)) {
+              reject(
+                process.env.NODE_ENV !== 'production'
+                  ? `timeout (${res.timeout}ms)`
+                  : null
+              )
+            }
+          }, res.timeout)
+        }
+      }
+    }
+
+    sync = false
+    // return in case resolved synchronously
+    return factory.loading
+      ? factory.loadingComp
+      : factory.resolved
+  }
+}
+```
+渲染过程同样来到 resolveAsyncComponent, 一开始判断 factory.error 是否为 true, 当然一开始肯定是 false 的, 不进入该逻辑, 接着同样执行到 const res = factory(resolve, reject) 的执行, 因为我们刚才说了我们的工厂函数返回了一个异步组件配置对象, 于是 res 就是我们定义该工厂函数返回的对象, 这时候 isObject(res) 为 true, isPromise(res) 为 false, isPromise(res.component) 为 true, 接着判断 res.error 是否有定义, 于是在 factory 定义扩展了 errorComp, errorComp是通过 ensureCtor 来对 res.error 的定义组件转化为组件的构造器, loading 也是一样的逻辑, 在 factory 扩展 loadingComp 组件构造器。
+
+接着, 这时候需要特别注意, 当我们定义的 res.delay 为 0, 则直接把 factory.loading 置为 true, 因为这里影响到 resolveAsyncComponent 的返回值。
+
+```js
+return factory.loading
+      ? factory.loadingComp
+      : factory.resolved
+```
+
+当 factory.loading 为 true, 会返回 loadingComp, 使得 createComponet 的时候不是创建一个注释vnode, 而是直接执行 loadingComp 的渲染。
+
+如果我们的 res.delay 不为0, 则会启用一个计时器, 先同步返回 undefined 触发注释节点创建, 在一定的时间后执行 factory.loading = true 和 forceRender(false), 条件是组件没有加载完成以及没有出错 reject, 接着执行把注释vnode 替换为加载过程组件 loadingComp 的渲染。
+
+而 res.timeout 主要用来计时, 当在 res.timeout 的时间内, 如果当前的 factory.resolved 为 undefined, 则说明异步组件加载已经超时了, 于是会调用 reject 方法, reject 其实就是调用 forceRender 来执行 errorComp 的渲染。
+
+OK, 当我们的组件加载完成了, 执行了 resolve 方法, factory.resloved 置为 true, 调用 forceRender 来把注释节点或者是 loadingComp 的节点替换渲染为加载完成的组件。
+
+到此, 我们已经了解三种异步组件的注册过程了。
+
+## 小结一下
+
+异步组件的渲染本质上其实就是执行2次或者2次以上的渲染, 先把当前组件渲染为注释节点, 当组件加载成功后, 通过 forceRender 执行重新渲染。或者是渲染为注释节点, 然后再渲染为loading节点, 在渲染为请求完成的组件。
+
+这里需要注意的是 forceRender 的执行, forceRender 用于强制执行当前的节点重新渲染, 至于整个渲染过程是怎么样的后续文章有机会的话。。。再讲解吧。
+
+本人语文表达能力有限, 只是突发奇想为了把自己了解到的过程用自己的话语表达出来, 如果有什么错误的地方望多多包涵。
