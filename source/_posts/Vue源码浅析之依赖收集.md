@@ -139,9 +139,7 @@ export function popTarget () {
 
 在 src/core/observer/dep 中的代码定义了 Dep 这个类, 其构造函数初始化了一个 uid 和 subs 的空数组。接着我们看下 depend 这个函数, 其实现非常简单, 就是判断 Dep.target 是否存在, 存在则执行 Dep.target.addDep(this), 那这时候我们得要先知道 Dep.target 是什么东东。
 
-Dep.target 是一个全局的渲染 watcher, 而且其保证同一时间只能有一个 watcher 被计算, 所以在 pushTarget 就是对把传入的渲染 watcher 赋值给 Dep.target, 并通过一个数组实现栈结构来保存当前的渲染 watcher, 为啥需要通过栈结构来保存这些渲染 watcher, 因为 Vue 在 mountComponent 每个组件初始化过程中会实例化一个渲染 Watcher, 组件的初始化是先子后父递归执行, 所以这里是为了保证父级的渲染 watcher 能够等子组件初始化完成后进行恢复, 恢复方法对应 popTarget。
-
-那我们知道了
+Dep.target 是一个全局的渲染 watcher, 而且其保证同一时间只能有一个 watcher 被计算, 所以在 pushTarget 就是对把传入的渲染 watcher 赋值给 Dep.target, 并通过一个数组实现栈结构来保存当前的渲染 watcher, 为啥需要通过栈结构来保存这些渲染 watcher, 因为 Vue 在 mountComponent 每个组件初始化过程中会实例化一个渲染 Watcher, 组件的创建初始化是先父后子递归执行, 所以这里是为了保证父级的渲染 watcher 能够等子组件初始化完成后进行恢复, 恢复方法对应 popTarget。
 
 ```js
 export function mountComponent (
@@ -191,7 +189,21 @@ export default class Watcher {
     isRenderWatcher?: boolean
   ) {
     
-    ...省略
+    this.vm = vm
+    if (isRenderWatcher) {
+      vm._watcher = this
+    }
+    vm._watchers.push(this)
+    // options
+    if (options) {
+      this.deep = !!options.deep
+      this.user = !!options.user
+      this.lazy = !!options.lazy
+      this.sync = !!options.sync
+      this.before = options.before
+    } else {
+      this.deep = this.user = this.lazy = this.sync = false
+    }
 
     this.cb = cb
     this.id = ++uid // uid for batching
