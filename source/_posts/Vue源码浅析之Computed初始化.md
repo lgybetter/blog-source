@@ -1,5 +1,5 @@
 ---
-title: Vue源码浅析之Computed解析
+title: Vue源码浅析之Computed初始化
 date: 2019-07-03 23:48:36
 tags:
   - Vue
@@ -31,7 +31,7 @@ computed 主要的用途是把一个或多个变量进行计算处理, 得到计
 
 这次就来探索一下 computed 的原理实现。
 
-## Computed 初始化
+## Computed 初始化 Get 过程
 
 在实例化 Vue 的过程中, initState 函数实现如下:
 
@@ -105,46 +105,11 @@ initComputed 先定义了一个 watchers 用于保存当前 computed 对象各�
 
 接着, 就根据计算属性的 key 值实例化一个相对应的 computed watcher, 这个 watcher 为啥叫 computed watcher, 因为我们看到 Watcher 的构造函数传参有 computedWatcherOptions = { lazy: true }。表示这是一个 computed watcher, 用于计算属性监听所使用, 和之前说过的渲染 watcher 有所区别。computed watcher 的构造函数还会传入当前的 vm 实例, computed 属性中对应的 getter。
 
-接下来我们需要关注一下英文注释：
 
-component-defined computed properties are already defined on the
-component prototype. We only need to define computed properties defined
-at instantiation here.
-
-这句话其实就是介绍, 对于子组件来说, 其声明的 computed 属性已经被定义在当前组件的原型中, 这时候 key in vm 其实会为 true。
-
-为什么已经定义在子组件中呢?
-
-我们可以了解到, 在对子组件在初始化的过程中, 会通过 Vue.extend 来获取组件的构造器
-
-```js
-// 继承组件定义
-const Sub = function VueComponent (options) {
-  // 执行Vue.prototype._init方法
-  this._init(options)
-}
-// 继承父组件Vue的原型
-Sub.prototype = Object.create(Super.prototype)
-// 拦截重置构造函数
-Sub.prototype.constructor = Sub
-
-...省略
-
-if (Sub.options.props) {
-  initProps(Sub)
-}
-if (Sub.options.computed) {
-  initComputed(Sub)
-}
-```
-
-Vue.extend 的方法其实在进行 initState 的 initComputed 调用前, 已经在获取子组件的构造器的时候就调用了 initComputed 对 computed 进行挂载初始化了。
+这时候我们看下 new Watcher 的实现。
 
 
-这时候我们回过头看下 new Watcher 的实现。
-
-
-## 实例化 computed watcher
+### 实例化 computed watcher
 
 ```js
 constructor (
@@ -202,13 +167,52 @@ constructor (
 }
 ```
 
+此时 this.lazy 为 true, 然后会把用户定义的 getter 传入的并保存在当前 computed watcher 的 this.getter中。
 
 
-我们继续看下 defineComputed 的实现:
+### defineComputed 实现
+
+接下来我们需要关注一下英文注释：
+
+component-defined computed properties are already defined on the
+component prototype. We only need to define computed properties defined
+at instantiation here.
+
+这句话其实就是介绍, 对于子组件来说, 其声明的 computed 属性已经被定义在当前组件的原型中, 这时候 key in vm 其实会为 true。
+
+为什么已经定义在子组件中呢?
+
+我们可以了解到, 在对子组件在初始化的过程中, 会通过 Vue.extend 来获取组件的构造器
+
+```js
+// 继承组件定义
+const Sub = function VueComponent (options) {
+  // 执行Vue.prototype._init方法
+  this._init(options)
+}
+// 继承父组件Vue的原型
+Sub.prototype = Object.create(Super.prototype)
+// 拦截重置构造函数
+Sub.prototype.constructor = Sub
+
+...省略
+
+if (Sub.options.props) {
+  initProps(Sub)
+}
+if (Sub.options.computed) {
+  initComputed(Sub)
+}
+```
+
+Vue.extend 的方法其实在进行 initState 的 initComputed 调用前, 已经在获取子组件的构造器的时候就调用了 initComputed 对 computed 进行挂载初始化了。
+
+
+defineComputed 的实现如下:
 
 ```js
 export function defineComputed (
-  target: any, // vm
+  target: any, // Sub原型
   key: string,
   userDef: Object | Function // computed getter/setter
 ) {
@@ -238,8 +242,11 @@ export function defineComputed (
   Object.defineProperty(target, key, sharedPropertyDefinition)
 }
 ```
+defineComputed 其实通过 Object.defineProperty 为当前的 Sub 原型定义对应计算属性的 getter/setter, 在原型上定义主要是为了给多个组件能够共享调用 createComputedGetter 这个 getter 的优化点。
 
-defineComputed 其实通过 Object.defineProperty 为当前的 vm 实例定义对应计算属性的 getter/setter。这里主要看下 createComputedGetter 的实现：
+### createComputedGetter 实现
+
+接下来主要看下 createComputedGetter 的实现：
 
 ```js
 function createComputedGetter (key) {
@@ -257,7 +264,6 @@ function createComputedGetter (key) {
   }
 }
 ```
-createComputedGetter 返回一个函数, 这个函数就是每个 computed 属性所对应的 getter 函数, 当 computed 被访问时, 会触发改函数的执行, 该函数其实就是触发当前 computed watcher 的 evaluate 或者 depend 方法执行, 一开始 watcher.dirty 为 true, 原因是 dirty 的初始值其实就是我们传入的 computedWatcherOptions = { lazy: true } 的 lazy。于是执行 watcher.evaluate()
 
 ```js
 evaluate () {
@@ -266,9 +272,76 @@ evaluate () {
 }
 ```
 
-处于渲染过程中, 也就是 Dep.target 不为空, 则该 computed watcher 会被当前的渲染 watcher 对应的 Dep 收集到subs中。也就是当前的渲染 watcher 订阅了该 computed 数据的变化。
+createComputedGetter 返回一个函数, 这个函数 computedGetter 就是每个 computed 属性所对应的 getter 函数, 当 computed 的属性被访问时, 比如在渲染过程中属性被访问, 会触发 computedGetter 的执行, 该函数其实就是触发当前 computed watcher 的 evaluate 或者 depend 方法执行, 一开始 watcher.dirty 为 true, 原因是 dirty 的初始值其实就是我们传入的 computedWatcherOptions = { lazy: true } 的 lazy。于是执行 watcher.evaluate() 这时候会调用 this.get() 进行求值。
 
-evaluate 函数执行传入 computed watcher 的 getter 函数, 也就是用户定义的 computed getter 的函数。把计算好的值赋值给 computed watcher 实例的 value。
+```js
+get () {
+  // 把当前的watcher, 渲染watcher 或者 computed watcher 赋值给Dep.target
+  pushTarget(this)
+  let value
+  const vm = this.vm
+  try {
+    // 执行在mountComponet中传入的updateComponent
+    value = this.getter.call(vm, vm)
+  } catch (e) {
+    if (this.user) {
+      handleError(e, vm, `getter for watcher "${this.expression}"`)
+    } else {
+      throw e
+    }
+  } finally {
+    // "touch" every property so they are all tracked as
+    // dependencies for deep watching
+    if (this.deep) {
+      traverse(value)
+    }
+    popTarget()
+    this.cleanupDeps()
+  }
+  return value
+}
+```
 
-由于用户定义在 computed getter 函数中的数据也是响应式对象, 在计算过程中会触发其 getter 函数, 这时候会其对应的 dep 会被添加到当前的 computed watcher中作为依赖进行收集。
+我们之前已经了解，pushTarget(this) 其实就是把当前的 computed watcher 赋值给 Dep.target, 接着执行 this.getter 计算 computed 属性对应的数值。
 
+这里需要特别注意一点, this.getter 为用户给 computed 属性定义的 getter 方法, 此方法执行会触发这个方法所依赖的响应式数据的 getter 的执行。
+
+这时候需要特别关注，当前的 Dep.target 为此时 computed 属性对应的 computed watcher, 而触发响应式数据的 getter 的执行则会使得响应式数据对象对应的 dep 收集 Dep.target, 也就是此时的 computed watcher。这里其实就是当前的 computed watcher 订阅了所依赖的响应式数据的变化。
+
+最后执行完成后调用 popTarget 把原始的 watcher, 比如渲染 watcher 恢复重新赋值给 Dep.target。
+
+this.get() 执行完成后则把 this.dirty 置为 false。
+
+回到 computedGetter, 如果处于渲染过程中, 也就是 Dep.target 不为空, 则继续执行了 watcher.depend, 则该 computed watcher 会把当前的渲染 watcher 收集 push 到它的 this.dep.subs 中, 也就是 computed watcher 对当前的渲染 watcher 进行依赖收集。完成后, 然后返回通过 evaluate 计算得到的值。
+
+这里整个 computed 的 get 求值就已经完成了。
+
+## Computed 变更 Set 过程
+
+当 computed 属性所依赖的响应式数据发生变更后, 则响应式数据会触发其对应的 setter 执行
+
+```js
+set: function reactiveSetter (newVal) {
+  const value = getter ? getter.call(obj) : val
+  /* eslint-disable no-self-compare */
+  if (newVal === value || (newVal !== newVal && value !== value)) {
+    return
+  }
+  /* eslint-enable no-self-compare */
+  if (process.env.NODE_ENV !== 'production' && customSetter) {
+    customSetter()
+  }
+  // #7981: for accessor properties without setter
+  if (getter && !setter) return
+  if (setter) {
+    setter.call(obj, newVal)
+  } else {
+    val = newVal
+  }
+  childOb = !shallow && observe(newVal)
+  dep.notify()
+}
+```
+set 的执行我们之前有了解过, 这里主要看 dep.notify(), 因为在 get 过程中, 计算属性对应的 computed watcher 订阅了响应式数据的 dep, 这时候会通知 computed watcher 进行 update, 然后 computed watcher 执行 this.dirty = true 的逻辑。
+
+未完待续...
