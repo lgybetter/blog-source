@@ -306,13 +306,24 @@ get () {
 
 这里需要特别注意一点, this.getter 为用户给 computed 属性定义的 getter 方法, 此方法执行会触发这个方法所依赖的响应式数据的 getter 的执行。
 
-这时候需要特别关注，当前的 Dep.target 为此时 computed 属性对应的 computed watcher, 而触发响应式数据的 getter 的执行则会使得响应式数据对象对应的 dep 收集 Dep.target, 也就是此时的 computed watcher。这里其实就是当前的 computed watcher 订阅了所依赖的响应式数据的变化。
+这时候需要特别关注，当前的 Dep.target 为此时 computed 属性对应的 computed watcher, 而触发响应式数据的 getter 的执行则会使得响应式数据对象对应的 dep 收集 Dep.target, 也就是此时的 computed watcher。当前的 computed watcher 会被 push 到响应式对象的 dep.subs 的数组中, 这里其实就是当前的 computed watcher 订阅了所依赖的响应式数据的变化。
 
 最后执行完成后调用 popTarget 把原始的 watcher, 比如渲染 watcher 恢复重新赋值给 Dep.target。
 
 this.get() 执行完成后则把 this.dirty 置为 false。
 
-回到 computedGetter, 如果处于渲染过程中, 也就是 Dep.target 不为空, 则继续执行了 watcher.depend, 则该 computed watcher 会把当前的渲染 watcher 收集 push 到它的 this.dep.subs 中, 也就是 computed watcher 对当前的渲染 watcher 进行依赖收集。完成后, 然后返回通过 evaluate 计算得到的值。
+回到 computedGetter, 如果处于渲染过程中, 也就是 Dep.target 不为空, 则继续执行了 watcher.depend 
+
+```js
+depend () {
+  let i = this.deps.length
+  while (i--) {
+    this.deps[i].depend()
+  }
+}
+```
+当前的 computed watcher 已经订阅了所依赖的响应式数据的变化, 于是 computed watcher 的 deps 为所有依赖的响应式数据对应的 Dep。于是执行 dep.depend, 把当前的 Dep.target 也就是当前的渲染 watcher, push 到每个响应式数据对象所对应的 dep.subs 中。当前的渲染 watcher 订阅了 computed watcher 所依赖的数据的变化, 用于依赖数据更新触发视图 update 渲染。完成后, 然后返回通过 evaluate 计算得到的值。
+
 
 这里整个 computed 的 get 求值就已经完成了。
 
@@ -342,6 +353,50 @@ set: function reactiveSetter (newVal) {
   dep.notify()
 }
 ```
-set 的执行我们之前有了解过, 这里主要看 dep.notify(), 因为在 get 过程中, 计算属性对应的 computed watcher 订阅了响应式数据的 dep, 这时候会通知 computed watcher 进行 update, 然后 computed watcher 执行 this.dirty = true 的逻辑。
+set 的执行我们之前有了解过, 这里主要看两个点
+- newVal === value || (newVal !== newVal && value !== value)
+- dep.notify()
 
-未完待续...
+第一个是 set 的触发会对比当前更新的值是否发生变更, 如果没有变更则直接 return 不往下执行触发视图更新。
+
+第二个则是执行了当前响应式数据对象对应的 dep 的 notify 方法
+
+```js
+notify () {
+  // stabilize the subscriber list first
+  const subs = this.subs.slice()
+  if (process.env.NODE_ENV !== 'production' && !config.async) {
+    // subs aren't sorted in scheduler if not running async
+    // we need to sort them now to make sure they fire in correct
+    // order
+    subs.sort((a, b) => a.id - b.id)
+  }
+  for (let i = 0, l = subs.length; i < l; i++) {
+    subs[i].update()
+  }
+}
+```
+
+因为在 get 过程中, 计算属性对应的 computed watcher 订阅了响应式数据的 dep, 这时候会通知 computed watcher 进行 update, 对应的渲染 watcher 也订阅了响应式数据的 dep, 也会执行 update。
+
+computed watcher 的 update 会先执行, 然后执行渲染 watcher 的 update
+
+```js
+update () {
+  /* istanbul ignore else */
+  if (this.lazy) {
+    this.dirty = true
+  } else if (this.sync) {
+    this.run()
+  } else {
+    queueWatcher(this)
+  }
+}
+```
+
+computed watcher 执行 update 把其对应的 dirty 属性置为 true, 接着执行渲染 watcher 的update, 渲染 watcher 的 update 执行了 queueWatcher 让视图在下一个 tick 进行更新。
+
+于是视图进行 flushSchedulerQueue 更新, 渲染 watcher 的更新会触发 computed 属性的 getter, 所以就再次执行 computedGetter 的执行, computed watcher 的 evaluate 和 depend 再次执行, 重新依赖收集所依赖的响应式数据, 接着返回数据更新后的新的 computed 值, 接着视图触发渲染更新。
+
+
+这里已经完成了整个 computed 属性的初始化的解析以及当 computed 属性所依赖的数据发生变更后的重新计算依赖和数值的过程。
