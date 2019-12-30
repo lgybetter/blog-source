@@ -60,5 +60,288 @@ __PS: Best UI 大部分学习和借鉴了 Element 和 iView 组件库的源码__
 
 一个前端工程化项目的结构出来了，按照个人的开发习惯，接下来就是要对项目的构建进行配置了，不然光写代码而运行不了，没什么意义。
 
-## Webpack 构建配置
+## 构建过程配置
+
+对于 Webpack 的配置，本来一开始是使用 vue-cli 来生成对应的构建配置，但是后面发现要去修改适配组件库的构建流程有点鸡肋，所以就干脆自己大致按照 Element 的方式去做一遍配置，每个环节这里都会详细介绍
+
+build 这个构建配置的目录如下：
+
++-- build
+    +-- bin
+        +-- build-component.js
+        +-- build.js
+        +-- watch.js
+    +-- utils
+    +-- config.js
+    +-- webpack.base.js
+    +-- webpack.build.js
+    +-- webpack.component.js
+    +-- webpack.watch.js
+
+bin 目录三个文件代表了三个运行的命令
+
+- build-component 主要是用于构建多个组件的单文件。
+- build 表示构建整体的组件库，包含多个组件的合并。
+- watch 用于开发构建过程中预览调试
+
+utils 中只有一个 resolve 用来做路径的解析
+
+### Webpack 的 Base 配置  
+
+webpack.base.js:
+
+```js
+const HappyPack = require('happypack')
+const os = require('os')
+const happyThreadPool = HappyPack.ThreadPool({ size: os.cpus().length })
+const { VueLoaderPlugin } = require('vue-loader')
+const { resolve } = require('./utils/resolve')
+const ProgressBarPlugin = require('progress-bar-webpack-plugin')
+
+module.exports = {
+  resolve: {
+    extensions: ['.vue', '.js', '.json'],
+    alias: {
+      '@': resolve(process.cwd(), 'examples'),
+      '~': resolve(process.cwd(), 'packages'),
+      src: resolve(process.cwd(), 'src')
+    }
+  },
+  module: {
+    rules: [
+      {
+        test: /\.js$/,
+        loader: 'happypack/loader?id=eslint',
+        enforce: 'pre'
+      },
+      {
+        test: /\.js$/,
+        loader: 'happypack/loader?id=babel'
+      },
+      {
+        test: /\.vue$/,
+        loader: 'vue-loader',
+        options: {
+          loader: {
+            js: 'happypack/loader?id=babel'
+          }
+        }
+      },
+      {
+        test: /\.scss$/,
+        use: [
+          'style-loader',
+          'css-loader',
+          'sass-loader'
+        ]
+      },
+      {
+        test: /\.(woff2?|eot|ttf|otf)(\?.*)?$/,
+        loader: 'url-loader',
+        options: {
+          limit: 10000,
+          name: 'fonts/[name].[hash:7].[ext]'
+        }
+      }
+    ]
+  },
+  plugins: [
+    new HappyPack({
+      id: 'eslint',
+      loaders: [{
+        loader: 'eslint-loader',
+        options: {
+          formatter: require('eslint-friendly-formatter')
+        }
+      }],
+      verbose: false,
+      threadPool: happyThreadPool
+    }),
+    new HappyPack({
+      id: 'babel',
+      loaders: [{
+        loader: 'babel-loader',
+        options: {
+          cacheDirectory: true
+        }
+      }],
+      verbose: false,
+      threadPool: happyThreadPool
+    }),
+    new ProgressBarPlugin(),
+    new VueLoaderPlugin()
+  ]
+}
+
+```
+
+使用 happypack 来进行 babel 的转码，配置对应需要的 loader 和 plugins
+
+这里没有指定 entry 和 output 主要是让其他的命令配置进行指定
+
+### Watch 模式
+
+webpack.base.js: 
+
+```js
+const merge = require('webpack-merge')
+const HtmlWebpackPlugin = require('html-webpack-plugin')
+const baseConf = require('./webpack.base')
+
+const config = merge(baseConf, {
+  mode: 'development',
+  entry: './examples/main.js',
+  plugins: [
+    new HtmlWebpackPlugin({
+      template: './examples/template/index.html'
+    })
+  ]
+})
+
+module.exports = config
+
+```
+
+bin/watch.js:
+
+```js
+const webpack = require('webpack')
+const config = require('../webpack.watch')
+const middleware = require('webpack-dev-middleware')
+
+const compiler = webpack(config)
+const express = require('express')
+const app = express()
+
+app.use(
+  middleware(compiler, {
+  })
+)
+
+app.listen(3000, () => console.log('Example app listening on port 3000!'))
+
+```
+
+Watch 模式下使用 webpack-dev-middleware 结合 express 实现一个简单的 dev-server 进行开发预览，对应的入口文件为我们 examples 下的 main.js 文件。
+
+### build 模式
+
+webpack.build.js: 
+
+```js
+const merge = require('webpack-merge')
+const baseConf = require('./webpack.base')
+const { externals } = require('./config')
+const { resolve } = require('./utils/resolve')
+const { CleanWebpackPlugin } = require('clean-webpack-plugin')
+
+const config = merge(baseConf, {
+  mode: 'production',
+  entry: resolve(process.cwd(), 'src', 'index.js'),
+  output: {
+    path: resolve(process.cwd(), './lib'),
+    publicPath: '/dist/',
+    filename: 'index.js',
+    library: 'BEST',
+    libraryTarget: 'umd'
+  },
+  performance: {
+    hints: false
+  },
+  externals,
+  plugins: [
+    new CleanWebpackPlugin()
+  ]
+})
+
+module.exports = config
+
+```
+
+指定 mode 为 production，配置对应的 entry 为 src 下的 index.js ， 用于进行全局构建，对应的 output 路径为 lib，指定的 libraryTarget 为 umd 模块。
+
+bin/build.js:
+
+```js
+const webpack = require('webpack')
+const config = require('../webpack.build')
+
+const compiler = webpack(config)
+
+compiler.run(function (err, stats) {
+  if (err) {
+    return console.error(err)
+  }
+})
+
+```
+
+直接借助 webapck 的 compiler 执行构建
+
+### Build Component 模式
+
+这里说明一下为什么要构建单个的组件文件，因为涉及到 __按需加载__ 的使用，我们需要对单个的组件进行构建，这里可以借助 webpack 的多文件构建模式来执行
+
+webapck.component.js:
+
+```js
+const merge = require('webpack-merge')
+const baseConf = require('./webpack.base')
+const { externals } = require('./config')
+const { resolve } = require('./utils/resolve')
+
+const components = require('../components.json')
+
+const entrys = {}
+Object.keys(components).forEach(component => {
+  entrys[component] = components[component]
+})
+
+const config = merge(baseConf, {
+  mode: 'production',
+  entry: entrys,
+  output: {
+    path: resolve(process.cwd(), 'lib'),
+    publicPath: '/dist/',
+    filename: '[name].js',
+    libraryTarget: 'commonjs2'
+  },
+  optimization: {
+    minimize: false
+  },
+  performance: {
+    hints: false
+  },
+  externals
+})
+
+module.exports = config
+
+```
+
+通过读取 component.json 的构建配置文件来获取构建的组件对应的入口文件，对应的 output 路径为 lib
+
+### 样式构建
+
+
+
+
+### package.json 的 script 配置
+
+通过以上完成了对应的构建配置，为了快速执行以上的命令，我们可以在 npm 的 script 中进行配置:
+
+package.json:
+
+```json
+{
+  "scripts": {
+    "watch": "node ./build/bin/watch.js",
+    "build:component": "node ./build/bin/build-component.js",
+    "build": "node ./build/bin/build.js",
+    "build:all": "npm run build & npm run build:component & npm run build:css",
+    "build:css": "gulp build --gulpfile ./gulpfile.js",
+    "lint": "eslint --fix --ext .js,.vue src packages"
+  }
+}
+```
 
