@@ -950,7 +950,7 @@ export default {
 - typings: 类型声明文件位置
 - peerDependencies: 这里简单来说就是如果你安装了 best-ui, 那你最好也安装 vue
 
-## 使用 Besst UI
+## 使用 Best UI
 
 ### 全局引入
 
