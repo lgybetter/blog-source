@@ -560,3 +560,140 @@ export declare class BestUIComponent extends Vue {
 
 待补充 !-_-!
 
+## 组件样式开发
+
+### BEM 样式编写规范
+
+> BEM代表 “块（block）, 元素（element）, 修饰符（modifier）”
+
+以 Button 的组件为例子，我们看下怎么理解 BEM 的规范
+
+对于 Best UI， 前缀统一使用 bt 进行命名，所以 button 组件在 Best UI 的样式命名 为 bt-button，这里 bt-button 表示一个 block
+
+当 bt-button 下有其他的关联元素，比如标签，这时候可以命名为 bt-button__label
+
+通常一个 button 有不同的修饰类型，一个 button 可以为 primary 类型，也可以为 info 类型，或者 warning 类型，这种就可以用修饰符来命名 bt-button--primary
+
+
+我们看下 packages/theme/button.scss 的实现
+
+```scss
+@charset "UTF-8";
+@import "common/var";
+@import "mixins/_button";
+@import "mixins/mixins";
+@import "mixins/utils";
+
+@include b(button) {
+  display: inline-block;
+  cursor: pointer;
+  background: $--button-default-background-color;
+  border: $--border-base;
+  border-color: $--button-default-border-color;
+  color: $--button-default-font-color;
+  -webkit-appearance: none;
+  text-align: center;
+  box-sizing: border-box;
+  box-shadow: $--button-box-shadow;
+  outline: none;
+  margin: 0;
+  font-weight: $--button-font-weight;
+  transition: .1s;
+
+  @include utils-user-select(none);
+  
+  & + & {
+    margin-left: 10px;
+  }
+
+  @include button-size($--button-padding-vertical, $--button-padding-horizontal, $--button-font-size, $--button-border-radius);
+
+  &:hover,
+  &:focus {
+    color: $--color-primary;
+    border-color: $--color-primary-light-7;
+    background-color: $--color-primary-light-9;
+    box-shadow: $--button-modifier-box-shadow;
+  }
+
+  &:active {
+    color: mix($--color-black, $--color-primary, $--button-active-shade-percent);
+    border-color: mix($--color-black, $--color-primary, $--button-active-shade-percent);
+    outline: none;
+  }
+
+  @include when(circle) {
+    border-radius: $--border-radius-circle;
+    padding: 10px;
+    font-size: 0;
+    & > * {
+      font-size: $--button-font-size;
+    }
+  }
+
+  @include m(primary) {
+    @include button-variant($--button-primary-font-color, $--button-primary-background-color, $--button-primary-border-color);
+  }
+
+  @include m(info) {
+    @include button-variant($--button-info-font-color, $--button-info-background-color, $--button-info-border-color);
+  }
+
+  @include m(warn) {
+    @include button-variant($--button-warn-font-color, $--button-warn-background-color, $--button-warn-border-color);
+  }
+
+}
+```
+
+这里咋一看，可能会觉得这 sass 写得也太复杂了吧！笔者一开始看 Element 的时候就有这种感觉，因为这里都是参考了 Element 的规范，我们这里对这里的 sass 写法做一些详细分析。
+
+### Sass 公用方法分析
+
+1. common/var.scss 这个文件主要是对一些颜色，字体大小，边框等等样式变量进行定义，方便主题的统一修改替换
+
+2. 对于 mixins/utils.scss 这个主要是一些工具的 sass 函数，比如：清除浮动，文字溢出处理，垂直居中等等
+
+```scss
+@mixin utils-user-select($value) {
+  -moz-user-select: $value;
+  -webkit-user-select: $value;
+  -ms-user-select: $value;
+}
+
+@mixin utils-clearfix {
+  $selector: &;
+
+  @at-root {
+    #{$selector}::before,
+    #{$selector}::after {
+      display: table;
+      content: "";
+    }
+    #{$selector}::after {
+      clear: both;
+    }
+  }
+}
+
+@mixin utils-vertical-center {
+  $selector: &;
+
+  @at-root {
+    #{$selector}::after {
+      display: inline-block;
+      content: "";
+      height: 100%;
+      vertical-align: middle;
+    }
+  }
+}
+
+@mixin utils-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+```
+
+3. 
