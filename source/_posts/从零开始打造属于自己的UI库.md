@@ -62,6 +62,8 @@ __PS: Best UI 大部分学习和借鉴了 Element 和 iView 组件库的源码__
 
 ## 构建过程配置
 
+![Webpack]](/images/webpack-logo.jpeg)
+
 对于 Webpack 的配置，本来一开始是使用 vue-cli 来生成对应的构建配置，但是后面发现要去修改适配组件库的构建流程有点鸡肋，所以就干脆自己大致按照 Element 的方式去做一遍配置，每个环节这里都会详细介绍
 
 build 这个构建配置的目录如下：
@@ -325,6 +327,8 @@ module.exports = config
 
 ### 样式构建
 
+![Gulp]](/images/gulp-logo.jpg)
+
 Best UI 组件库是用 Sass 来进行样式的编写，我们这里为了和 js 的构建区分开，所以在样式的构建上，单独使用 gulp 对 .scss 的样式文件进行构建
 
 gulpfile.js:
@@ -383,6 +387,8 @@ package.json:
 ```
 
 ## 尝试开发一个组件
+
+![Vue](/images/vue-logo.png)
 
 以上已经完成了对整个构建过程的配置，当我们把必要的工程化工具都配置好了后，可以尝试上手开发一个组件，我们以开发一个 Button 组件为具体实例
 
@@ -562,6 +568,8 @@ export declare class BestUIComponent extends Vue {
 
 ## 组件样式开发
 
+![Vue](/images/sass-logo.png)
+
 ### BEM 样式编写规范
 
 > BEM代表 “块（block）, 元素（element）, 修饰符（modifier）”
@@ -650,9 +658,9 @@ export declare class BestUIComponent extends Vue {
 
 ### Sass 公用方法分析
 
-1. common/var.scss 这个文件主要是对一些颜色，字体大小，边框等等样式变量进行定义，方便主题的统一修改替换
+(1) common/var.scss 这个文件主要是对一些颜色，字体大小，边框等等样式变量进行定义，方便主题的统一修改替换
 
-2. 对于 mixins/utils.scss 这个主要是一些工具的 sass 函数，比如：清除浮动，文字溢出处理，垂直居中等等
+(2) 对于 mixins/utils.scss 这个主要是一些工具的 sass 函数，比如：清除浮动，文字溢出处理，垂直居中等等
 
 ```scss
 @mixin utils-user-select($value) {
@@ -696,4 +704,114 @@ export declare class BestUIComponent extends Vue {
 }
 ```
 
-3. 
+(3) 我们重点看下 mixins/mixins.scss
+
+
+```scss
+@import "function"; /* 配置 $namespace, $element-separator, $modifier-separator, $state-prefix */
+@import "../common/var";
+
+/* BEM */
+
+// block
+@mixin b($block) {
+  $B: $namespace+'-'+$block !global; // $B is the global var
+
+  .#{$B} {
+    @content;
+  }
+}
+
+// element
+@mixin e($element) {
+  $E: $element !global; // $E is the global var
+  $selector: &;
+  $currentSelector: "";
+  @each $unit in $element {
+    $currentSelector: #{$currentSelector + "." + $B + $element-separator + $unit + ","};
+  }
+
+  @if hitAllSpecialNestRule($selector) {
+    @at-root {
+      #{$selector} {
+        #{$currentSelector} {
+          @content;
+        }
+      }
+    }
+  } @else {
+    @at-root {
+      #{$currentSelector} {
+        @content;
+      }
+    }
+  }
+}
+
+// modifier
+@mixin m($modifier) {
+  $selector: &;
+  $currentSelector: "";
+  @each $unit in $modifier {
+    $currentSelector: #{$currentSelector + & + $modifier-separator + $unit + ","};
+  }
+
+  @at-root {
+    #{$currentSelector} {
+      @content;
+    }
+  }
+}
+
+@mixin when($state) {
+  @at-root {
+    &.#{$state-prefix + $state} {
+      @content;
+    }
+  }
+}
+```
+
+这里 b 函数，e 函数，m 函数，when 函数分别用于对类名进行封装
+
+比如我们要对 button 命名一个 bt-button，这时候可以用
+
+```scss
+@include b(button) {
+  ...
+}
+```
+
+当我们需要命名 bt-button__label，则写法如下：
+
+```scss
+@include b(button) {
+  @include e(label) {
+    ...
+  }
+}
+```
+
+需要对 bt-button 进行修饰得到 bt-button--primary 的时候：
+
+```scss
+@include b(button) {
+  @include m(primary) {
+    ...
+  }
+}
+```
+
+需要标识状态的类名可以使用 when 函数，比如：是否为圆形按钮，is-circle
+
+```scss
+@include b(button) {
+  @include when(circle) {
+    ...
+  }
+}
+
+```
+
+通过这种方式高效利用 sass 的强大语法，结合 BEM 的规范让我们书写样式的时候井然有序，简洁明了（前提是已经了解 sass 的语法）。
+
