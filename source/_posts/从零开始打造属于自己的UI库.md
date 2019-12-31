@@ -815,3 +815,205 @@ export declare class BestUIComponent extends Vue {
 
 通过这种方式高效利用 sass 的强大语法，结合 BEM 的规范让我们书写样式的时候井然有序，简洁明了（前提是已经了解 sass 的语法）。
 
+## Vue 组件开发技巧
+
+使用 Vue 框架实现一个组件库，不像我们平时在业务层级可以引入一些库比如 vuex，vue-router。我们需要追求更加简洁，尽量确保不引入多余的库。
+
+### 跨层级的组件通信
+
+假如我们有 A 组件，然后 A 组件可以通过 slot 插槽嵌入 B 组件，B 组件又可以通过 slot 嵌入 C 组件，这时候 C 组件想向 A 组件进行跨级通信简单通过 props 和 emit 要传递可能会显得比较繁琐。
+
+于是，我们可以自己实现一个 dispatch 和 broadcast 的功能
+
+__PS: 这里主要参考 iView 的实现__
+
+src/mixins/emitter.js:
+
+```js
+export default {
+  methods: {
+    /**
+     * @desc 向上遍历找寻对应组件名称的父组件分发事件
+     * @param {*} componentName
+     * @param {*} eventName
+     * @param {*} params
+     */
+    dispatch (componentName, eventName, params) {
+      let parent = this.$parent || this.$root
+      let name = parent.$options.name
+
+      while (parent && (!name || name !== componentName)) {
+        parent = parent.$parent
+
+        if (parent) {
+          name = parent.$options.name
+        }
+      }
+      if (parent) {
+        parent.$emit(eventName, params)
+      }
+    },
+    /**
+     * @desc 向下便利找寻对应组件名称的子组件分发事件
+     * @param {*} componentName
+     * @param {*} eventName
+     * @param {*} params
+     */
+    broadcast (componentName, eventName, params) {
+      this.$children.forEach(child => {
+        const name = child.$options.name
+
+        if (name === componentName) {
+          child.$emit(eventName, params)
+        } else {
+          this.broadcast.apply(child, [componentName, eventName, params])
+        }
+      })
+    }
+  }
+}
+```
+
+当我们的 C 组件需要向 A 组件进行通信的时候，我们这时候可以使用 dispatch，在 C 组件中向上寻找 A 组件，通过 name 属性找到 A 组件，然后传递对应的事件名称和参数。
+
+当我们 A 组件需要向 C 组件进行通信，我们可以使用 broadcast 广播向下寻找 C 组件，并通知对应的事件和参数。
+
+### 其他技巧等待缓慢补充
+
+待补充 !-_-!
+
+
+## 发布 Best UI
+
+完成了以上的分析，这时候 Best UI 的大概的结构和实现已经出来了，那我们怎么去发布我们的库呢？
+
+其实很简单，只要我们配置好对应的 package.json 文件就 ok 了
+
+```json
+{
+  "name": "@douku/best-ui",
+  "version": "0.1.5",
+  "private": false,
+  "main": "lib/best-ui.common.js",
+  "files": [
+    "lib",
+    "src",
+    "packages",
+    "types"
+  ],
+  "typings": "types/index.d.ts",
+  "scripts": {
+    "watch": "node ./build/bin/watch.js",
+    "build:component": "node ./build/bin/build-component.js",
+    "build": "node ./build/bin/build.js",
+    "build:all": "npm run build & npm run build:component & npm run build:css",
+    "build:css": "gulp build --gulpfile ./gulpfile.js",
+    "lint": "eslint --fix --ext .js,.vue src packages"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:DouKu/best-ui.git"
+  },
+  "keywords": [
+    "best",
+    "vue",
+    "components"
+  ],
+  "bugs": {
+    "url": "https://github.com/DouKu/best-ui/issues"
+  },
+  "license": "MIT",
+  "unpkg": "lib/index.js",
+  "style": "lib/theme/index.css",
+  "dependencies": {
+    "async-validator": "^3.1.0",
+    "vue": "^2.6.10"
+  },
+  "peerDependencies": {
+    "vue": "^2.6.10"
+  },
+  "devDependencies": {
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "npm run lint",
+      "pre-push": "npm run lint"
+    }
+  }
+}
+
+```
+
+- name: 组件库的包名称
+- main: 全局加载的入口文件
+- files: 需要发布的文件列表
+- typings: 类型声明文件位置
+- peerDependencies: 这里简单来说就是如果你安装了 best-ui, 那你最好也安装 vue
+
+## 使用 Besst UI
+
+### 全局引入
+
+```js
+import Vue from 'vue';
+import BestUI from '@douku/best-ui'; 
+import '@douku/best-ui/lib/theme/index.css';
+
+Vue.use(BestUI);
+```
+
+### 按需加载
+
+.babelrc:
+
+```json
+{
+  "plugins": [
+    [
+      "component",
+      {
+        "libraryName": "@douku/best-ui",
+        "styleLibraryName": "theme"
+      }
+    ]
+  ]
+}
+```
+
+js 使用:
+
+```js
+import { Button } from '@douku/best-ui';
+
+Vue.component(Button.name, Button);
+
+new Vue({
+  el: '#app',
+  render: h => h(App)
+});
+```
+
+这里简单说一下 babel-plugins-component 实现按需加载的原理, 其实就是：
+
+```js
+import { Button } from '@douku/best-ui';
+```
+
+转换为:
+
+```js
+const button = require('@douku/best-ui/lib/button.js');
+require('@douku/best-ui/lib/theme/button.css');
+```
+
+这样就不难理解为什么能过实现按需加载了!
+
+## 结尾
+
+今天是 2019 的最后一天了，回看博客，今年自己写的文章比去年多了一些，希望明年能写出更多。
+
+保持热爱前端的态度，不断折腾，追求极致!
+
+源码地址：[Best UI](https://github.com/DouKu/best-ui)
+
+半成品文档地址：[Best UI](https://best-ui.github.io/zh/components/common/button.html)
