@@ -25,7 +25,6 @@ __PS: Best UI 大部分学习和借鉴了 Element 和 iView 组件库的源码__
 
 ## 项目结构
 
-.
 +-- build
 +-- examples
 +-- lib
