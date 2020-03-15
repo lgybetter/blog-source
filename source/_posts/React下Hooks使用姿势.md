@@ -245,8 +245,118 @@ export default Counter
 
 ## Ref Hook 使用
 
-未完待续！^_^
+```js
+import React, { useEffect, useRef } from 'react'
+import { Button } from 'antd'
 
-## Memo Hooks 使用
+const Counter = () => {
+  const ref = useRef()
 
-未完待续！^_^
+  useEffect(() => {
+    console.log(ref.current)
+  }, [])
+
+  return (
+    <>
+      <Button ref={ref} onClick={() => onButtonClick('add')}>Add</Button>
+    </>
+  )
+}
+
+export default Counter
+```
+
+使用 useRef 来声明获得当前的 ref 对象，赋值给对应的组件节点，ref.current 则表示为当前 ref 对应的组件的 dom 节点对象。
+
+## Memo Hooks 和 Callback Hooks 使用
+
+
+官网对着两个 Hook 的解释如下
+
+### useCallback
+
+```js
+const memoizedCallback = useCallback(
+  () => {
+    doSomething(a, b);
+  },
+  [a, b],
+);
+```
+
+在传入的依赖值 a, b, 不变的情况下, memoizedCallback 的引用保持不变，useCallback 的第一个入参函数会被缓存。
+
+### useMemo
+
+```js
+const memoizedValue = useMemo(() => computeExpensiveValue(a, b), [a, b]);
+```
+
+在传入的依赖值 a, b, 不变的情况下, memoizedValue 的值保持不变, useMemo函数的第一个入参函数不会被执行。
+
+
+useCallback(fn, deps) 等价于 useMemo(() => fn, deps)
+
+
+### useCallback 使用
+
+```js
+import React, { useState, useCallback } from 'react'
+
+const Counter = () => {
+  const [count, setCount] = useState(0)
+  const onCount = useCallback(() => {
+    return setCount(count => count + 1)
+  }, [])
+  return (
+    <>
+      <p>{count}</p>
+      <ChildComponent onCount={onCount}></ChildComponent>
+    </>
+  )
+}
+
+export default Counter
+```
+
+```js
+import React, { memo } from 'react'
+import { Button } from 'antd'
+
+const ChildComponent = memo(({ onCount }) => {
+  return <Button onClick={onCount}>Add</Button>
+})
+```
+
+因为我们使用 useCallback 缓存了 onCount函数，使得当 count 发生变化时，Counter 重新渲染后 onCount 保持引用不变，传入 ChildComponent 借助 memo 方法使得 ChildComponent 组件避免了不必要的重新渲染。
+
+### useMemo 使用
+
+> useCallback 是根据传入的依赖,缓存第一个入参函数。useMemo 是根据传入的依赖，缓存第一个入参函数执行后的值。
+
+useMemo 个人理解与 vue 的 computed 属性类似
+
+```js
+import React, { useState, useCallback, useMemo } from 'react'
+
+const Counter = () => {
+  const [count, setCount] = useState(0)
+  const onCount = useCallback(() => {
+    return setCount(count => count + 1)
+  }, [])
+  const couteComputed = useMemo(() => {
+    return (count * 1000) / 1024 
+  }, [count]) 
+  return (
+    <>
+      <p>{count}</p>
+      <p>{couteComputed}</p>
+      <ChildComponent onCount={onCount}></ChildComponent>
+    </>
+  )
+}
+
+export default Counter
+```
+
+useMemo 的依赖就可以只在指定变量值更改时才执行计算，从而达到节约内存消耗。
