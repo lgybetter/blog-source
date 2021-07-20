@@ -7,7 +7,7 @@ categories:
   - 前端
 ---
 
-![banner](/images/react.png)
+![banner](/images/react.jpg)
 
 ## ReactDOM.render 用法
 
